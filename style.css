@@ -1,106 +1,189 @@
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: #f0f2f5;
-    color: #333;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    margin: 0;
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 状态管理 ---
+    let selectedNumbers = [null, null, null, null];
+    let activeSlotIndex = 0;
+
+    // --- DOM 元素获取 ---
+    const slots = document.querySelectorAll('.number-slot');
+    const keypad = document.querySelector('.keypad');
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resultsContainer = document.getElementById('results');
+
+    // --- 动态生成按钮 ---
+    function createButtons() {
+        // 生成 1-13 数字按钮
+        for (let i = 1; i <= 13; i++) {
+            const button = document.createElement('button');
+            button.className = 'key';
+            button.textContent = i;
+            button.dataset.value = i;
+            keypad.appendChild(button);
+        }
+        // 生成控制按钮
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'key key-control';
+        deleteBtn.innerHTML = '&larr;'; // Backspace arrow
+        deleteBtn.id = 'delete-btn';
+        keypad.appendChild(deleteBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'key key-control';
+        clearBtn.textContent = 'C';
+        clearBtn.id = 'clear-btn';
+        keypad.appendChild(clearBtn);
+    }
+    
+    // --- UI 更新函数 ---
+    function updateDisplay() {
+        slots.forEach((slot, index) => {
+            slot.textContent = selectedNumbers[index] !== null ? selectedNumbers[index] : '';
+            if (index === activeSlotIndex) {
+                slot.classList.add('active');
+            } else {
+                slot.classList.remove('active');
+            }
+        });
+    }
+
+    // --- 事件处理函数 ---
+    function handleNumberInput(number) {
+        if (activeSlotIndex < 4) {
+            selectedNumbers[activeSlotIndex] = number;
+            activeSlotIndex++;
+            if (activeSlotIndex > 3) {
+                activeSlotIndex = 3; // 保持光标在最后一个位置
+            }
+            updateDisplay();
+        }
+    }
+
+    function handleDelete() {
+        // 如果当前格子是空的，并且不是第一个格子，光标先往前移
+        if (selectedNumbers[activeSlotIndex] === null && activeSlotIndex > 0) {
+            activeSlotIndex--;
+        }
+        selectedNumbers[activeSlotIndex] = null;
+        updateDisplay();
+    }
+
+    function handleClear() {
+        selectedNumbers = [null, null, null, null];
+        activeSlotIndex = 0;
+        updateDisplay();
+        resultsContainer.innerHTML = '<p>请先选择4个数字并点击计算。</p>';
+    }
+
+    // --- 事件监听器 ---
+    keypad.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.classList.contains('key')) {
+            if (target.dataset.value) { // 是数字按钮
+                handleNumberInput(parseInt(target.dataset.value, 10));
+            } else if (target.id === 'delete-btn') {
+                handleDelete();
+            } else if (target.id === 'clear-btn') {
+                handleClear();
+            }
+        }
+    });
+
+    slots.forEach(slot => {
+        slot.addEventListener('click', (e) => {
+            activeSlotIndex = parseInt(e.target.dataset.index, 10);
+            updateDisplay();
+        });
+    });
+
+    calculateBtn.addEventListener('click', () => {
+        if (selectedNumbers.includes(null)) {
+            alert('请输入4个数字后再计算！');
+            return;
+        }
+
+        resultsContainer.innerHTML = '<p>正在计算中...</p>';
+        setTimeout(() => {
+            const solutions = find24(selectedNumbers);
+            if (solutions.size > 0) {
+                let html = '';
+                solutions.forEach(sol => {
+                    html += `<p class="solution">${sol.replace(/(\d+)/g, '<strong>\$1</strong>')}</p>`;
+                });
+                resultsContainer.innerHTML = html;
+            } else {
+                resultsContainer.innerHTML = '<p>这组数字无法计算出24点。</p>';
+            }
+        }, 10);
+    });
+
+    // --- 初始化 ---
+    createButtons();
+    updateDisplay();
+});
+
+
+// --- 核心计算逻辑 (保持不变) ---
+function find24(nums) {
+    const solutions = new Set();
+    const operators = ['+', '-', '*', '/'];
+    const epsilon = 1e-6;
+
+    function solve(arr, exprArr) {
+        if (arr.length === 1) {
+            if (Math.abs(arr[0] - 24) < epsilon) {
+                // 清理表达式，去除最外层的括号
+                let finalExpr = exprArr[0];
+                if (finalExpr.startsWith('(') && finalExpr.endsWith(')')) {
+                    finalExpr = finalExpr.substring(1, finalExpr.length - 1);
+                }
+                solutions.add(`${finalExpr} = 24`);
+            }
+            return;
+        }
+
+        for (let i = 0; i < arr.length; i++) {
+            for (let j = 0; j < arr.length; j++) {
+                if (i === j) continue;
+
+                const a = arr[i];
+                const b = arr[j];
+                const exprA = exprArr[i];
+                const exprB = exprArr[j];
+
+                const remainingNums = arr.filter((_, index) => index !== i && index !== j);
+                const remainingExprs = exprArr.filter((_, index) => index !== i && index !== j);
+
+                for (const op of operators) {
+                    if (op === '/' && Math.abs(b) < epsilon) continue;
+
+                    let newNum, newExpr;
+                    switch (op) {
+                        case '+':
+                            newNum = a + b;
+                            newExpr = `(${exprA} + ${exprB})`;
+                            break;
+                        case '-':
+                            // 为了避免重复，如 8-2 和 2-8，只允许大数减小数
+                            if (a < b) continue; 
+                            newNum = a - b;
+                            newExpr = `(${exprA} - ${exprB})`;
+                            break;
+                        case '*':
+                            newNum = a * b;
+                            newExpr = `(${exprA} * ${exprB})`;
+                            break;
+                        case '/':
+                            newNum = a / b;
+                            newExpr = `(${exprA} / ${exprB})`;
+                            break;
+                    }
+                    
+                    solve([...remainingNums, newNum], [...remainingExprs, newExpr]);
+                }
+            }
+        }
+    }
+
+    solve(nums, nums.map(String));
+    return solutions;
 }
 
-.container {
-    background-color: #fff;
-    padding: 30px;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    text-align: center;
-    max-width: 500px;
-    width: 90%;
-}
-
-h1 {
-    color: #1a73e8;
-    margin-bottom: 10px;
-}
-
-.description {
-    color: #666;
-    margin-bottom: 25px;
-}
-
-.input-area {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    margin-bottom: 25px;
-}
-
-input[type="number"] {
-    width: 60px;
-    height: 60px;
-    text-align: center;
-    font-size: 24px;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    outline: none;
-    transition: border-color 0.3s;
-}
-
-input[type="number"]:focus {
-    border-color: #1a73e8;
-}
-
-/* 隐藏number input的上下箭头 */
-input[type=number]::-webkit-inner-spin-button, 
-input[type=number]::-webkit-outer-spin-button { 
-  -webkit-appearance: none; 
-  margin: 0; 
-}
-input[type=number] {
-  -moz-appearance: textfield;
-}
-
-#calculate-btn {
-    background-color: #1a73e8;
-    color: white;
-    border: none;
-    padding: 12px 25px;
-    border-radius: 8px;
-    font-size: 18px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-    width: 100%;
-}
-
-#calculate-btn:hover {
-    background-color: #1558b3;
-}
-
-#result-area {
-    margin-top: 30px;
-    text-align: left;
-}
-
-#results {
-    background-color: #f9f9f9;
-    border: 1px solid #eee;
-    border-radius: 8px;
-    padding: 15px;
-    min-height: 100px;
-    max-height: 200px;
-    overflow-y: auto;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 16px;
-    line-height: 1.6;
-}
-
-#results p {
-    margin: 0;
-    color: #555;
-}
-
-#results .solution {
-    color: #28a745;
-    font-weight: bold;
-}
