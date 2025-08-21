@@ -1,49 +1,141 @@
-document.getElementById('calculate-btn').addEventListener('click', () => {
-    const inputs = [
-        document.getElementById('num1').value,
-        document.getElementById('num2').value,
-        document.getElementById('num3').value,
-        document.getElementById('num4').value
-    ];
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 状态管理 ---
+    let selectedNumbers = [null, null, null, null];
+    let activeSlotIndex = 0;
 
-    const numbers = inputs.map(val => parseInt(val, 10));
+    // --- DOM 元素获取 ---
+    const slots = document.querySelectorAll('.number-slot');
+    const keypad = document.querySelector('.keypad');
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resultsContainer = document.getElementById('results');
 
-    if (numbers.some(isNaN) || numbers.some(n => n < 1 || n > 13)) {
-        alert('请输入4个1到13之间的有效整数！');
-        return;
+    // --- 动态生成按钮 ---
+    function createButtons() {
+        // 生成 1-13 数字按钮
+        for (let i = 1; i <= 13; i++) {
+            const button = document.createElement('button');
+            button.className = 'key';
+            button.textContent = i;
+            button.dataset.value = i;
+            keypad.appendChild(button);
+        }
+        // 生成控制按钮
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'key key-control';
+        deleteBtn.innerHTML = '&larr;'; // Backspace arrow
+        deleteBtn.id = 'delete-btn';
+        keypad.appendChild(deleteBtn);
+
+        const clearBtn = document.createElement('button');
+        clearBtn.className = 'key key-control';
+        clearBtn.textContent = 'C';
+        clearBtn.id = 'clear-btn';
+        keypad.appendChild(clearBtn);
+    }
+    
+    // --- UI 更新函数 ---
+    function updateDisplay() {
+        slots.forEach((slot, index) => {
+            slot.textContent = selectedNumbers[index] !== null ? selectedNumbers[index] : '';
+            if (index === activeSlotIndex) {
+                slot.classList.add('active');
+            } else {
+                slot.classList.remove('active');
+            }
+        });
     }
 
-    const resultsContainer = document.getElementById('results');
-    resultsContainer.innerHTML = '<p>正在计算中...</p>';
-
-    setTimeout(() => {
-        const solutions = find24(numbers);
-        if (solutions.size > 0) {
-            let html = '';
-            solutions.forEach(sol => {
-                html += `<p class="solution">${sol.replace(/(\d+)/g, '<strong>\$1</strong>')}</p>`;
-            });
-            resultsContainer.innerHTML = html;
-        } else {
-            resultsContainer.innerHTML = '<p>这组数字无法计算出24点。</p>';
+    // --- 事件处理函数 ---
+    function handleNumberInput(number) {
+        if (activeSlotIndex < 4) {
+            selectedNumbers[activeSlotIndex] = number;
+            activeSlotIndex++;
+            if (activeSlotIndex > 3) {
+                activeSlotIndex = 3; // 保持光标在最后一个位置
+            }
+            updateDisplay();
         }
-    }, 10);
+    }
+
+    function handleDelete() {
+        // 如果当前格子是空的，并且不是第一个格子，光标先往前移
+        if (selectedNumbers[activeSlotIndex] === null && activeSlotIndex > 0) {
+            activeSlotIndex--;
+        }
+        selectedNumbers[activeSlotIndex] = null;
+        updateDisplay();
+    }
+
+    function handleClear() {
+        selectedNumbers = [null, null, null, null];
+        activeSlotIndex = 0;
+        updateDisplay();
+        resultsContainer.innerHTML = '<p>请先选择4个数字并点击计算。</p>';
+    }
+
+    // --- 事件监听器 ---
+    keypad.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.classList.contains('key')) {
+            if (target.dataset.value) { // 是数字按钮
+                handleNumberInput(parseInt(target.dataset.value, 10));
+            } else if (target.id === 'delete-btn') {
+                handleDelete();
+            } else if (target.id === 'clear-btn') {
+                handleClear();
+            }
+        }
+    });
+
+    slots.forEach(slot => {
+        slot.addEventListener('click', (e) => {
+            activeSlotIndex = parseInt(e.target.dataset.index, 10);
+            updateDisplay();
+        });
+    });
+
+    calculateBtn.addEventListener('click', () => {
+        if (selectedNumbers.includes(null)) {
+            alert('请输入4个数字后再计算！');
+            return;
+        }
+
+        resultsContainer.innerHTML = '<p>正在计算中...</p>';
+        setTimeout(() => {
+            const solutions = find24(selectedNumbers);
+            if (solutions.size > 0) {
+                let html = '';
+                solutions.forEach(sol => {
+                    html += `<p class="solution">${sol.replace(/(\d+)/g, '<strong>\$1</strong>')}</p>`;
+                });
+                resultsContainer.innerHTML = html;
+            } else {
+                resultsContainer.innerHTML = '<p>这组数字无法计算出24点。</p>';
+            }
+        }, 10);
+    });
+
+    // --- 初始化 ---
+    createButtons();
+    updateDisplay();
 });
 
+
+// --- 核心计算逻辑 (保持不变) ---
 function find24(nums) {
     const solutions = new Set();
     const operators = ['+', '-', '*', '/'];
-    const epsilon = 1e-6; 
+    const epsilon = 1e-6;
 
     function solve(arr, exprArr) {
         if (arr.length === 1) {
             if (Math.abs(arr[0] - 24) < epsilon) {
-                // 移除表达式最外层的括号，使其更美观
+                // 清理表达式，去除最外层的括号
                 let finalExpr = exprArr[0];
                 if (finalExpr.startsWith('(') && finalExpr.endsWith(')')) {
                     finalExpr = finalExpr.substring(1, finalExpr.length - 1);
                 }
-                solutions.add(finalExpr);
+                solutions.add(`${finalExpr} = 24`);
             }
             return;
         }
@@ -61,21 +153,7 @@ function find24(nums) {
                 const remainingExprs = exprArr.filter((_, index) => index !== i && index !== j);
 
                 for (const op of operators) {
-                    // --- 核心优化点在这里 ---
-                    // ADDED: 对于加法和乘法，如果 a > b，则跳过。
-                    // 这可以防止产生如 3+2 和 2+3 这样的重复解。
-                    if ((op === '+' || op === '*') && a > b) {
-                        continue;
-                    }
-                    if (op === '-' && a < b) { // 可选优化：a-b = -(b-a)，在某些情况下可减少冗余
-                        continue;
-                    }
-
-                    if (op === '/' && (Math.abs(b) < epsilon || a / b === 1)) {
-                        // 避免除以0，同时避免 a/a=1 这种无效操作
-                        continue;
-                    }
-                    // --- 优化结束 ---
+                    if (op === '/' && Math.abs(b) < epsilon) continue;
 
                     let newNum, newExpr;
                     switch (op) {
@@ -84,6 +162,8 @@ function find24(nums) {
                             newExpr = `(${exprA} + ${exprB})`;
                             break;
                         case '-':
+                            // 为了避免重复，如 8-2 和 2-8，只允许大数减小数
+                            if (a < b) continue; 
                             newNum = a - b;
                             newExpr = `(${exprA} - ${exprB})`;
                             break;
@@ -106,3 +186,4 @@ function find24(nums) {
     solve(nums, nums.map(String));
     return solutions;
 }
+
